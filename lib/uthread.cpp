@@ -261,11 +261,7 @@ int uthread_yield(void)
 void uthread_exit(void *retval) 
 {
     disableInterrupts();
-    
-    // 直接标记状态（无需操作队列）
-    current_thread->setState(FINISH);
-    
-    // 存储返回值到TCB（需在TCB类添加result字段）
+    current_thread->setState(State::FINISHED);
     current_thread->setResult(retval);
     
     enableInterrupts();
