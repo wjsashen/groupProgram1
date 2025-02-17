@@ -93,81 +93,79 @@ static TCB* current_thread = nullptr; // 当前运行线程
 static deque<TCB*> finished_queue;    // 已完成线程队列
 static deque<join_queue_entry_t> join_queue; // 等待队列
 
-static void handle_finished_threads();
-static void wake_joined_threads(int tid);
-
 // Switch to the next ready thread
 static void switchThreads()
 {
-	disableInterrupts();
+    disableInterrupts();
 
-    // 保存当前线程上下文
+    // ==================== 保存当前上下文 ====================
     if (current_thread != nullptr) {
-        int save_result = current_thread->saveContext();
-        if (save_result == -1) {
-            std::cerr << "Failed to save thread context" << std::endl;
+        // 保存运行中线程的上下文
+        if (current_thread->saveContext() == -1) {
+            cerr << "Failed to save context for TID: " << current_thread->getId() << endl;
             enableInterrupts();
             return;
         }
 
-        // 仅当线程未终止时重新入队
+        // 仅非终止线程重新入队
         if (current_thread->getState() != FINISH) {
             current_thread->setState(READY);
             addToReadyQueue(current_thread);
         }
     }
 
-    // 处理已完成线程
-    handle_finished_threads();
+    // ==================== 清理完成线程 ====================
+    auto finished_iter = finished_queue.begin();
+    while (finished_iter != finished_queue.end()) {
+        TCB* finished_tcb = finished_iter->tcb;
+        
+        // 唤醒等待该线程的调用者
+        auto join_iter = join_queue.begin();
+        while (join_iter != join_queue.end()) {
+            if (join_iter->waiting_for_tid == finished_tcb->getId()) {
+                addToReadyQueue(join_iter->tcb);
+                join_iter = join_queue.erase(join_iter);
+            } else {
+                ++join_iter;
+            }
+        }
 
-    // 选择下一个线程（RR调度）
-    TCB* next_thread = popFromReadyQueue();
-    if (next_thread == nullptr) {
-        std::cerr << "No available threads in ready queue" << std::endl;
-        enableInterrupts();
-        exit(EXIT_FAILURE);
+        // 释放资源
+        delete finished_tcb;
+        finished_iter = finished_queue.erase(finished_iter);
     }
 
+    // ==================== 选择新线程 ====================
+    if (ready_queue.empty()) {
+        if (current_thread && current_thread->getState() == FINISH) {
+            cerr << "All threads completed" << endl;
+            enableInterrupts();
+            exit(EXIT_SUCCESS);
+        } else {
+            cerr << "Deadlock: No runnable threads" << endl;
+            enableInterrupts();
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    // 取出下一个线程
+    TCB* next_thread = ready_queue.front();
+    ready_queue.pop_front();
+    
     // 更新线程状态
     next_thread->setState(RUNNING);
     TCB* prev_thread = current_thread;
     current_thread = next_thread;
 
     enableInterrupts();
-    // ==================== 临界区结束 ====================
 
-    // 执行上下文切换
-    if (prev_thread == nullptr) {
-        // 首次切换（无前驱上下文）
+    // ==================== 执行上下文切换 ====================
+    if (!prev_thread) {
+        // 首次调度直接加载上下文
         current_thread->loadContext();
     } else {
-        // 使用 swapcontext 保证原子性
+        // 原子化切换上下文
         swapcontext(&prev_thread->_context, &current_thread->_context);
-    }
-}
-
-static void handle_finished_threads() {
-    while (!finished_queue.empty()) {
-        TCB* finished_tcb = finished_queue.front().tcb;
-        
-        // 唤醒等待该线程的调用者
-        wake_joined_threads(finished_tcb->getId());
-        
-        // 释放资源（实际应根据设计决定释放时机）
-        delete finished_tcb;
-        finished_queue.pop_front();
-    }
-}
-
-static void wake_joined_threads(int tid) {
-    auto iter = join_queue.begin();
-    while (iter != join_queue.end()) {
-        if (iter->waiting_for_tid == tid) {
-            addToReadyQueue(iter->tcb);
-            iter = join_queue.erase(iter);
-        } else {
-            ++iter;
-        }
     }
 }
 
@@ -260,26 +258,19 @@ int uthread_yield(void)
     return 0;
 }
 
-void uthread_exit(void *retval)
+void uthread_exit(void *retval) 
 {
-	// If this is the main thread, exit the program
-	// Move any threads joined on this thread back to the ready queue
-	// Move this thread to the finished queue
-	disableInterrupts();
+    disableInterrupts();
     
-    // 标记为已完成
+    // 直接标记状态（无需操作队列）
     current_thread->setState(FINISH);
     
-    // 加入完成队列
-    finished_queue_entry_t entry = {current_thread, retval};
-    finished_queue.push_back(entry);
+    // 存储返回值到TCB（需在TCB类添加result字段）
+    current_thread->setResult(retval);
     
     enableInterrupts();
     
-    // 触发调度
     switchThreads();
-    
-    // 永不返回
     __builtin_unreachable();
 }
 
