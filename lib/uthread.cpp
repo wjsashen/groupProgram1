@@ -226,7 +226,38 @@ int uthread_join(int tid, void **retval)
 
 int uthread_yield(void)
 {
-	// TODO
+    // ==================== 临界区开始 ====================
+    disableInterrupts();
+
+    // 合法性检查：必须存在运行中的线程
+    if (current_thread == nullptr) {
+        enableInterrupts();
+        return -1;  // 错误：无活动线程
+    }
+
+    // 状态有效性验证：仅运行中线程可以yield
+    if (current_thread->getState() != RUNNING) {
+        enableInterrupts();
+        return -1;  // 错误：非运行状态线程不可yield
+    }
+
+    // 更新线程状态
+    current_thread->setState(READY);
+
+    // 将当前线程重新加入就绪队列（队尾实现RR调度）
+    addToReadyQueue(current_thread);
+
+    // 时间片统计（需在TCB类中实现）
+    current_thread->increaseQuantum();
+
+    enableInterrupts();
+    // ==================== 临界区结束 ====================
+
+    // 执行上下文切换
+    switchThreads();
+
+    // 当线程被重新调度时继续执行此处
+    return 0;
 }
 
 void uthread_exit(void *retval)
