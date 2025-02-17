@@ -89,11 +89,86 @@ int removeFromReadyQueue(int tid)
 }
 
 // Helper functions ------------------------------------------------------------
+static TCB* current_thread = nullptr; // 当前运行线程
+static deque<TCB*> finished_queue;    // 已完成线程队列
+static deque<join_queue_entry_t> join_queue; // 等待队列
+
+static void handle_finished_threads();
+static void wake_joined_threads(int tid);
 
 // Switch to the next ready thread
 static void switchThreads()
 {
-	// TODO
+	disableInterrupts();
+
+    // 保存当前线程上下文
+    if (current_thread != nullptr) {
+        int save_result = current_thread->saveContext();
+        if (save_result == -1) {
+            std::cerr << "Failed to save thread context" << std::endl;
+            enableInterrupts();
+            return;
+        }
+
+        // 仅当线程未终止时重新入队
+        if (current_thread->getState() != FINISH) {
+            current_thread->setState(READY);
+            addToReadyQueue(current_thread);
+        }
+    }
+
+    // 处理已完成线程
+    handle_finished_threads();
+
+    // 选择下一个线程（RR调度）
+    TCB* next_thread = popFromReadyQueue();
+    if (next_thread == nullptr) {
+        std::cerr << "No available threads in ready queue" << std::endl;
+        enableInterrupts();
+        exit(EXIT_FAILURE);
+    }
+
+    // 更新线程状态
+    next_thread->setState(RUNNING);
+    TCB* prev_thread = current_thread;
+    current_thread = next_thread;
+
+    enableInterrupts();
+    // ==================== 临界区结束 ====================
+
+    // 执行上下文切换
+    if (prev_thread == nullptr) {
+        // 首次切换（无前驱上下文）
+        current_thread->loadContext();
+    } else {
+        // 使用 swapcontext 保证原子性
+        swapcontext(&prev_thread->_context, &current_thread->_context);
+    }
+}
+
+static void handle_finished_threads() {
+    while (!finished_queue.empty()) {
+        TCB* finished_tcb = finished_queue.front().tcb;
+        
+        // 唤醒等待该线程的调用者
+        wake_joined_threads(finished_tcb->getId());
+        
+        // 释放资源（实际应根据设计决定释放时机）
+        delete finished_tcb;
+        finished_queue.pop_front();
+    }
+}
+
+static void wake_joined_threads(int tid) {
+    auto iter = join_queue.begin();
+    while (iter != join_queue.end()) {
+        if (iter->waiting_for_tid == tid) {
+            addToReadyQueue(iter->tcb);
+            iter = join_queue.erase(iter);
+        } else {
+            ++iter;
+        }
+    }
 }
 
 // Library functions -----------------------------------------------------------
@@ -124,6 +199,29 @@ int uthread_join(int tid, void **retval)
 	// If the thread specified by tid is already terminated, just return
 	// If the thread specified by tid is still running, block until it terminates
 	// Set *retval to be the result of thread if retval != nullptr
+	disableInterrupts();
+    
+    // 查找目标线程是否已完成
+    for (auto& entry : finished_queue) {
+        if (entry.tcb->getId() == tid) {
+            if (retval) *retval = entry.result;
+            enableInterrupts();
+            return 0;
+        }
+    }
+    
+    // 未完成则加入等待队列
+    join_queue_entry_t entry = {current_thread, tid};
+    join_queue.push_back(entry);
+    current_thread->setState(BLOCK);
+    
+    enableInterrupts();
+    
+    // 主动让出CPU
+    switchThreads();
+    
+    // 被唤醒后继续执行
+    return 0;
 }
 
 int uthread_yield(void)
@@ -136,6 +234,22 @@ void uthread_exit(void *retval)
 	// If this is the main thread, exit the program
 	// Move any threads joined on this thread back to the ready queue
 	// Move this thread to the finished queue
+	disableInterrupts();
+    
+    // 标记为已完成
+    current_thread->setState(FINISH);
+    
+    // 加入完成队列
+    finished_queue_entry_t entry = {current_thread, retval};
+    finished_queue.push_back(entry);
+    
+    enableInterrupts();
+    
+    // 触发调度
+    switchThreads();
+    
+    // 永不返回
+    __builtin_unreachable();
 }
 
 int uthread_suspend(int tid)
