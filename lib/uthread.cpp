@@ -35,9 +35,24 @@ static deque<TCB *> ready_queue;
 // Interrupt Management --------------------------------------------------------
 
 // Start a countdown timer to fire an interrupt
-static void startInterruptTimer()
+static void startInterruptTimer(int quantum_usecs)
 {
 	// TODO
+	struct itimerval timer;
+
+    // Set timer interval (repeating)
+    timer.it_interval.tv_sec = quantum_usecs / 1000000;
+    timer.it_interval.tv_usec = quantum_usecs % 1000000;
+
+    // Set initial timer expiration
+    timer.it_value.tv_sec = quantum_usecs / 1000000;
+    timer.it_value.tv_usec = quantum_usecs % 1000000;
+
+    if (setitimer(ITIMER_VIRTUAL, &timer, NULL) == -1)
+    {
+        perror("setitimer");
+        exit(EXIT_FAILURE);
+    }
 }
 
 // Block signals from firing timer interrupt
@@ -185,11 +200,39 @@ int uthread_init(int quantum_usecs)
 	// Initialize any data structures
 	// Setup timer interrupt and handler
 	// Create a thread for the caller (main) thread
+	//inter check : set up alarm timer, but the handler does nothing right now, not critical
+	startInterruptTimer(quantum_usecs);
+
+    // Create and initialize TCB for the main thread
+    TCB *main_tcb = new TCB(0); // Assume TID 0 for main thread
+    addToReadyQueue(main_tcb);
+
+    return 0;
+}
+static int next_tid = 1;
+
+int getNewTid() {
+    return next_tid++;  
 }
 
 int uthread_create(void *(*start_routine)(void *), void *arg)
 {
 	// Create a new thread and add it to the ready queue
+	disableInterrupts();
+
+    TCB *new_tcb = new TCB();
+	int tid = getNewTid(); 
+    if (new_tcb == nullptr) {
+        return -1; // Memory allocation failed
+    }
+
+    new_tcb->setState(start_routine);
+    new_tcb->setArg(arg);
+
+    // Step 3: Add the new TCB to the ready queue
+    addToReadyQueue(new_tcb);
+	enableInterrupts();
+	return tid;
 }
 
 int uthread_join(int tid, void **retval)
