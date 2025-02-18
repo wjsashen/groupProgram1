@@ -132,7 +132,8 @@ static void switchThreads()
     // ==================== 清理完成线程 ====================
     auto finished_iter = finished_queue.begin();
     while (finished_iter != finished_queue.end()) {
-        TCB* finished_tcb = finished_iter->tcb;
+        TCB* finished_tcb = *finished_iter;
+
         
         // 唤醒等待该线程的调用者
         auto join_iter = join_queue.begin();
@@ -180,8 +181,7 @@ static void switchThreads()
         current_thread->loadContext();
     } else {
         // 原子化切换上下文
-        swapcontext(&prev_thread->_context, &current_thread->_context);
-    }
+		swapcontext(prev_thread->getContext(), current_thread->getContext());    }
 }
 
 // Library functions -----------------------------------------------------------
@@ -204,8 +204,8 @@ int uthread_init(int quantum_usecs)
 	startInterruptTimer(quantum_usecs);
 
     // Create and initialize TCB for the main thread
-    TCB *main_tcb = new TCB(0); // Assume TID 0 for main thread
-    addToReadyQueue(main_tcb);
+	TCB *main_tcb = new TCB(0, Priority::ORANGE, nullptr, nullptr, State::RUNNING);    
+	addToReadyQueue(main_tcb);
 
     return 0;
 }
@@ -220,14 +220,13 @@ int uthread_create(void *(*start_routine)(void *), void *arg)
 	// Create a new thread and add it to the ready queue
 	disableInterrupts();
 
-    TCB *new_tcb = new TCB();
-	int tid = getNewTid(); 
+	TCB *new_tcb = new TCB(getNewTid(), Priority::ORANGE, start_routine, arg, State::READY);
+		int tid = getNewTid(); 
     if (new_tcb == nullptr) {
         return -1; // Memory allocation failed
     }
 
-    new_tcb->setState(start_routine);
-    new_tcb->setArg(arg);
+    new_tcb->setState(READY);
 
     // Step 3: Add the new TCB to the ready queue
     addToReadyQueue(new_tcb);
@@ -244,8 +243,9 @@ int uthread_join(int tid, void **retval)
     
     // 查找目标线程是否已完成
     for (auto& entry : finished_queue) {
-        if (entry.tcb->getId() == tid) {
-            if (retval) *retval = entry.result;
+        if (entry->getId() == tid) {
+            //todo: ???
+			//if (retval) *retval = entry.result;
             enableInterrupts();
             return 0;
         }
@@ -304,8 +304,8 @@ int uthread_yield(void)
 void uthread_exit(void *retval) 
 {
     disableInterrupts();
-    current_thread->setState(State::FINISHED);
-    current_thread->setResult(retval);
+    current_thread->setState(State::FINISH);
+    //current_thread->setResult(retval);
     
     enableInterrupts();
     

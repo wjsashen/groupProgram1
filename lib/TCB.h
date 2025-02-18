@@ -14,7 +14,7 @@
 
 extern void stub(void *(*start_routine)(void *), void *arg);
 
-enum State {READY, RUNNING, BLOCK};
+enum State {FINISH,READY, RUNNING, BLOCK};
 
 /*
  * The thread
@@ -85,13 +85,14 @@ public:
 	 */
 	void loadContext();
 
+	ucontext_t* getContext() { return &_context; }
 private:
 	int _tid;               // The thread id number.
 	Priority _pr;           // The priority of the thread (Red, orange or green)
 	int _quantum;           // The time interval, as explained in the pdf.
 	State _state;           // The state of the thread
 	char* _stack;           // The thread's stack
-        ucontext_t _context;    // The thread's saved context
+    ucontext_t _context;    // The thread's saved context
 };
 
 
