@@ -18,7 +18,6 @@ typedef struct join_queue_entry
 	TCB *tcb;			 // Pointer to TCB
 	int waiting_for_tid; // TID this thread is waiting on
 } join_queue_entry_t;
-ucontext_t main_context;  // Global variable to store the main context
 
 // You will need to maintain structures to track the state of threads
 // - uthread library functions refer to threads by their TID so you will want
@@ -122,20 +121,17 @@ static deque<TCB*> finished_queue;    // 已完成线程队列
 static deque<join_queue_entry_t> join_queue; // 等待队列
 
 // Switch to the next ready thread
-static void switchThreads()
-{
-    //disableInterrupts();
-
+static void switchThreads() {
     // ==================== 保存当前上下文 ====================
     if (current_thread != nullptr) {
-        // 保存运行中线程的上下文
+        // Save current thread context
         if (current_thread->saveContext() == -1) {
             cerr << "Failed to save context for TID: " << current_thread->getId() << endl;
             enableInterrupts();
             return;
         }
 
-        // 仅非终止线程重新入队
+        // Only re-queue threads that are not finished
         if (current_thread->getState() != FINISH) {
             current_thread->setState(READY);
             addToReadyQueue(current_thread);
@@ -147,8 +143,7 @@ static void switchThreads()
     while (finished_iter != finished_queue.end()) {
         TCB* finished_tcb = *finished_iter;
 
-        
-        // 唤醒等待该线程的调用者
+        // Wake up any joiners waiting for this thread
         auto join_iter = join_queue.begin();
         while (join_iter != join_queue.end()) {
             if (join_iter->waiting_for_tid == finished_tcb->getId()) {
@@ -159,7 +154,7 @@ static void switchThreads()
             }
         }
 
-        // 释放资源
+        // Free resources of finished thread
         delete finished_tcb;
         finished_iter = finished_queue.erase(finished_iter);
     }
@@ -177,42 +172,63 @@ static void switchThreads()
         }
     }
 
-    // 取出下一个线程
+    // Get the next thread from ready queue
     TCB* next_thread = ready_queue.front();
-	if (!next_thread) {
-		std::cerr << "Error: next_thread is NULL in switchThreads()" << std::endl;
-		exit(1);
-	}
+    if (!next_thread) {
+        std::cerr << "Error: next_thread is NULL in switchThreads()" << std::endl;
+        exit(1);
+    }
 
-	
     ready_queue.pop_front();
-	cout << "[DEBUG] Switching to thread " << next_thread->getId() << endl;
-    // 更新线程状态
+    cout << "[DEBUG] Switching to thread " << next_thread->getId() << endl;
+
+    // Update the state of the new thread to RUNNING
     next_thread->setState(RUNNING);
     TCB* prev_thread = current_thread;
-	if (!prev_thread) {
-		std::cerr << "Warning: prev_thread is NULL, using setcontext instead of swapcontext." << std::endl;
-	}
+
+    // Ensure prev_thread is not null before accessing
+    if (!prev_thread) {
+        std::cerr << "Warning: prev_thread is NULL, using setcontext instead of swapcontext." << std::endl;
+    }
     current_thread = next_thread;
 
-    //enableInterrupts();
-	std::cout << "Switching from thread " << prev_thread->getId() 
-	<< " to thread " << current_thread->getId() << std::endl;
-std::cout << "Prev thread state: " << prev_thread->getState() << std::endl;
-std::cout << "Next thread state: " << current_thread->getState() << std::endl;
-std::cout << "Swapcontext from " << prev_thread << " to " << current_thread << std::endl;
-
     // ==================== 执行上下文切换 ====================
-	if (!prev_thread) {
-		setcontext(current_thread->getContext());
-	} else {
-		if (swapcontext(prev_thread->getContext(), current_thread->getContext()) == -1) {
-			std::cerr << "ERROR: swapcontext() failed!" << std::endl;
-			exit(1);
-		}
-	}
-	
+    static ucontext_t cont[2];  // Array for two threads' contexts
+    static int currentThread = 0;  // Global variable for current thread
+
+    // Initialize the context (this step is crucial)
+    if (getcontext(&cont[currentThread]) == -1) {
+        std::cerr << "ERROR: getcontext() failed!" << std::endl;
+        exit(1);
+    }
+
+    cout << "SWITCH: currentThread = " << currentThread << endl;
+
+    // Ensure we're not calling getcontext() after the first return
+    volatile int flag = 0;  // Local flag variable for each thread
+    if (flag == 1) {
+        return;  // Resume the current thread
+    }
+
+    // First time returning from getcontext (switching threads)
+    flag = 1;
+    currentThread = 1 - currentThread;  // Switch to the other thread
+
+    // Debug the thread switching information
+    cout << "Switching from thread " << prev_thread->getId() 
+         << " to thread " << current_thread->getId() << std::endl;
+
+    std::cout << "Prev thread state: " << prev_thread->getState() << std::endl;
+    std::cout << "Next thread state: " << current_thread->getState() << std::endl;
+    std::cout << "setcontext from " << prev_thread << " to " << current_thread << std::endl;
+
+    // Now switch to the next thread using setcontext
+    if (setcontext(&cont[currentThread]) == -1) {
+        std::cerr << "ERROR: setcontext() failed!" << std::endl;
+        exit(1);
+    }
 }
+
 
 
 // Library functions -----------------------------------------------------------
@@ -276,11 +292,7 @@ int uthread_init(int quantum_usecs)
     // Create and initialize TCB for the main thread
     TCB *main_tcb = new TCB(0, Priority::ORANGE, nullptr, nullptr, State::RUNNING);
     
-    // Save main context at the start
-    if (getcontext(&main_context) == -1) {
-        std::cerr << "Failed to get main context" << std::endl;
-        exit(EXIT_FAILURE);
-    }
+
 
     // Set current thread to the main thread
     current_thread = main_tcb;
@@ -374,8 +386,6 @@ void uthread_exit(void *retval)
     // Perform cleanup (if necessary)
     // current_thread->setResult(retval);
 
-    // Switch back to the main context when thread finishes
-    setcontext(&main_context);  // This will jump back to main context
 
     enableInterrupts();
 }
