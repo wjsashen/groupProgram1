@@ -128,6 +128,8 @@ int main(int argc, char *argv[])
     }
 
 	uthread_yield();
+	uthread_yield();
+	uthread_yield();
 
     delete[] threads;
 

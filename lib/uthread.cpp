@@ -2,6 +2,8 @@
 #include "TCB.h"
 #include <cassert>
 #include <deque>
+#include <ostream>
+#include <ucontext.h>
 
 using namespace std;
 TCB *curr;
@@ -120,26 +122,15 @@ static TCB* current_thread = nullptr; // 当前运行线程
 static deque<TCB*> finished_queue;    // 已完成线程队列
 static deque<join_queue_entry_t> join_queue; // 等待队列
 static void switchThreads() {
-    // ==================== 保存当前上下文 ====================
+    static ucontext_t cont[2];  
+    //save the cur context to array first
     if (current_thread != nullptr) {
         // Save the context of the current thread using getcontext
-        static ucontext_t cont[2];  // Array for two threads' contexts
-        static int currentThread = 0;  // Global variable for the current thread
-
-        // Check if currentThread is within bounds
-        if (currentThread < 0 || currentThread >= 2) {
-            std::cerr << "ERROR: currentThread out of bounds" << std::endl;
-            exit(1);
-        }
-
         // Get the current context and store it in cont[currentThread]
-        if (getcontext(&cont[currentThread]) == -1) {
+        if (getcontext(&cont[0]) == -1) {
             std::cerr << "ERROR: getcontext() failed!" << std::endl;
             exit(1);
         }
-
-        std::cout << "SWITCH: currentThread = " << currentThread << std::endl;
-
         // Only re-queue threads that are not finished
         if (current_thread->getState() != FINISH) {
             current_thread->setState(READY);
@@ -147,28 +138,7 @@ static void switchThreads() {
         }
     }
 
-    // ==================== 清理完成线程 ====================
-    auto finished_iter = finished_queue.begin();
-    while (finished_iter != finished_queue.end()) {
-        TCB* finished_tcb = *finished_iter;
-
-        // Wake up any joiners waiting for this thread
-        auto join_iter = join_queue.begin();
-        while (join_iter != join_queue.end()) {
-            if (join_iter->waiting_for_tid == finished_tcb->getId()) {
-                addToReadyQueue(join_iter->tcb);
-                join_iter = join_queue.erase(join_iter);
-            } else {
-                ++join_iter;
-            }
-        }
-
-        // Free resources of finished thread
-        delete finished_tcb;
-        finished_iter = finished_queue.erase(finished_iter);
-    }
-
-    // ==================== 选择新线程 ====================
+    // error check for ready queue
     if (ready_queue.empty()) {
         if (current_thread && current_thread->getState() == FINISH) {
             cerr << "All threads completed" << endl;
@@ -180,63 +150,33 @@ static void switchThreads() {
             exit(EXIT_FAILURE);
         }
     }
-
     // Get the next thread from ready queue
-    TCB* next_thread = ready_queue.front();
+    TCB* next_thread = popFromReadyQueue();
     if (!next_thread) {
         std::cerr << "Error: next_thread is NULL in switchThreads()" << std::endl;
         exit(1);
     }
-
-    ready_queue.pop_front();
-    std::cout << "[DEBUG] Switching to thread " << next_thread->getId() << std::endl;
-
     // Update the state of the new thread to RUNNING
-    next_thread->setState(RUNNING);
+    next_thread->saveContext();
+    getcontext(&cont[1]); //save the new context to position1
     TCB* prev_thread = current_thread;
-
     // Ensure prev_thread is not null before accessing
     if (!prev_thread) {
         std::cerr << "Warning: prev_thread is NULL, using setcontext instead of swapcontext." << std::endl;
     }
     current_thread = next_thread;
-
-    // ==================== 执行上下文切换 ====================
-    static ucontext_t cont[2];  // Array for two threads' contexts
-    static int currentThread = 0;  // Global variable for current thread
-
-    // Initialize the context (this step is crucial)
-    if (getcontext(&cont[currentThread]) == -1) {
-        std::cerr << "ERROR: getcontext() failed!" << std::endl;
-        exit(1);
-    }
-
-    std::cout << "SWITCH: currentThread = " << currentThread << std::endl;
-
-    // Ensure we're not calling getcontext() after the first return
     volatile int flag = 0;  // Local flag variable for each thread
     if (flag == 1) {
         return;  // Resume the current thread
     }
-
-    // First time returning from getcontext (switching threads)
     flag = 1;
-    currentThread = 1 - currentThread;  // Switch to the other thread
+    current_thread->loadContext();
+    cout<<"yield done current thread is "<<current_thread->getId()<<" prev thread that yield is "<<prev_thread->getId()<<endl;
 
-    // Debug the thread switching information
-    std::cout << "Switching from thread " << prev_thread->getId() 
-         << " to thread " << current_thread->getId() << std::endl;
+    //check and clean the finished
+    delete[] (char*)cont[0].uc_stack.ss_sp;
+    delete[] (char*)cont[1].uc_stack.ss_sp;
 
-    std::cout << "Prev thread state: " << prev_thread->getState() << std::endl;
-    std::cout << "Next thread state: " << current_thread->getState() << std::endl;
-    std::cout << "setcontext from " << prev_thread << " to " << current_thread << std::endl;
-
-    // Now switch to the next thread using setcontext
-    if (setcontext(&cont[currentThread]) == -1) {
-        std::cerr << "ERROR: setcontext() failed!" << std::endl;
-        exit(1);
-    }
-    std::cout << "set done" << std::endl;
 }
 
 
