@@ -4,7 +4,7 @@
 #include <deque>
 
 using namespace std;
-
+TCB *curr;
 // Finished queue entry type
 typedef struct finished_queue_entry
 {
@@ -193,6 +193,7 @@ static void switchThreads()
 		swapcontext(prev_thread->getContext(), current_thread->getContext());    }
 }
 
+
 // Library functions -----------------------------------------------------------
 
 // The function comments provide an (incomplete) summary of what each library
@@ -208,19 +209,21 @@ void stub(void *(*start_routine)(void *), void *arg) {
 
 int uthread_init(int quantum_usecs)
 {
-	// Initialize any data structures
-	// Setup timer interrupt and handler
-	// Create a thread for the caller (main) thread
-	//inter check : set up alarm timer, but the handler does nothing right now, not critical
-	startInterruptTimer(quantum_usecs);
+    // Initialize any data structures
+    // Setup timer interrupt and handler
+    // Create a thread for the caller (main) thread
+    // Inter check : set up alarm timer, but the handler does nothing right now, not critical
+    startInterruptTimer(quantum_usecs);
 
     // Create and initialize TCB for the main thread
-	TCB *main_tcb = new TCB(0, Priority::ORANGE, nullptr, nullptr, State::RUNNING);    
-	addToReadyQueue(main_tcb);
+    TCB *main_tcb = new TCB(0, Priority::ORANGE, nullptr, nullptr, State::RUNNING);
+    addToReadyQueue(main_tcb);
+    current_thread = main_tcb;  // Set the current thread to the main thread
     cout << "[DEBUG] Main thread initialized with TID 0." << endl;
 
     return 0;
 }
+
 static int next_tid = 1;
 
 int getNewTid() {
@@ -277,42 +280,54 @@ int uthread_join(int tid, void **retval)
     // 被唤醒后继续执行
     return 0;
 }
-
 int uthread_yield(void)
 {
-    // ==================== 临界区开始 ====================
+    std::cout << "[DEBUG] Entering uthread_yield function." << std::endl;
+
+    // ==================== Critical Section Start ====================
     disableInterrupts();
+    std::cout << "[DEBUG] Interrupts disabled." << std::endl;
 
-    // 合法性检查：必须存在运行中的线程
+    // Check if there is an active thread
     if (current_thread == nullptr) {
+        std::cout << "[DEBUG] No active thread. Exiting uthread_yield." << std::endl;
         enableInterrupts();
-        return -1;  // 错误：无活动线程
+        return -1;  // Error: No active thread
     }
 
-    // 状态有效性验证：仅运行中线程可以yield
+    // Ensure the current thread is in the running state before yielding
     if (current_thread->getState() != RUNNING) {
+        std::cout << "[DEBUG] Current thread is not running. Exiting uthread_yield." << std::endl;
         enableInterrupts();
-        return -1;  // 错误：非运行状态线程不可yield
+        return -1;  // Error: Only running threads can yield
     }
 
-    // 更新线程状态
+    // Update the current thread state to READY
+    std::cout << "[DEBUG] Updating current thread state to READY." << std::endl;
     current_thread->setState(READY);
 
-    // 将当前线程重新加入就绪队列（队尾实现RR调度）
+    // Add the current thread back to the ready queue (Round Robin scheduling)
+    std::cout << "[DEBUG] Adding current thread to the ready queue." << std::endl;
     addToReadyQueue(current_thread);
 
-    // 时间片统计（需在TCB类中实现）
+    // Update the thread's quantum (time slice) count
+    std::cout << "[DEBUG] Increasing current thread's quantum." << std::endl;
     current_thread->increaseQuantum();
 
     enableInterrupts();
-    // ==================== 临界区结束 ====================
+    std::cout << "[DEBUG] Interrupts enabled." << std::endl;
+    // ==================== Critical Section End ====================
 
-    // 执行上下文切换
+    // Perform the context switch
+    std::cout << "[DEBUG] Performing context switch." << std::endl;
     switchThreads();
 
-    // 当线程被重新调度时继续执行此处
+    // The thread will continue here once it is rescheduled
+    std::cout << "[DEBUG] Returning from uthread_yield after context switch." << std::endl;
     return 0;
 }
+
+
 
 void uthread_exit(void *retval) 
 {
