@@ -118,19 +118,29 @@ int removeFromReadyQueue(int tid)
 // Helper functions ------------------------------------------------------------
 
 static void switchThreads() {
+  disableInterrupts();
+
   //save the context of current thread
   TCB* current = curr;
   getcontext(&current->context);
 
   //set the state of thread into READY
-  current->setState(READY);
-  addToReadyQueue(current);
+  if (current->getState() == RUNNING) {
+    current->setState(READY);
+    addToReadyQueue(current);
+  }
 
   //take next thread from ready queue
   curr = popFromReadyQueue();
+  if (!curr) {
+    std::cerr << "FATAL: No available threads!" << std::endl;
+    exit(EXIT_FAILURE);
+  }
   curr->setState(RUNNING);
+  std::cout << "Switching from TID "<< current->getId() << " to TID " << curr->getId() << std::endl;
 
   //exchange context into new thread
+  enableInterrupts();
   setcontext(&curr->context);  
 }
 
