@@ -18,6 +18,7 @@ typedef struct join_queue_entry
 	TCB *tcb;			 // Pointer to TCB
 	int waiting_for_tid; // TID this thread is waiting on
 } join_queue_entry_t;
+ucontext_t main_context;  // Global variable to store the main context
 
 // You will need to maintain structures to track the state of threads
 // - uthread library functions refer to threads by their TID so you will want
@@ -123,7 +124,7 @@ static deque<join_queue_entry_t> join_queue; // 等待队列
 // Switch to the next ready thread
 static void switchThreads()
 {
-    disableInterrupts();
+    //disableInterrupts();
 
     // ==================== 保存当前上下文 ====================
     if (current_thread != nullptr) {
@@ -194,15 +195,23 @@ static void switchThreads()
 	}
     current_thread = next_thread;
 
-    enableInterrupts();
+    //enableInterrupts();
+	std::cout << "Switching from thread " << prev_thread->getId() 
+	<< " to thread " << current_thread->getId() << std::endl;
+std::cout << "Prev thread state: " << prev_thread->getState() << std::endl;
+std::cout << "Next thread state: " << current_thread->getState() << std::endl;
+std::cout << "Swapcontext from " << prev_thread << " to " << current_thread << std::endl;
 
     // ==================== 执行上下文切换 ====================
-    if (!prev_thread) {
-        // 首次调度直接加载上下文
-        current_thread->loadContext();
-    } else {
-        // 原子化切换上下文
-		swapcontext(prev_thread->getContext(), current_thread->getContext());    }
+	if (!prev_thread) {
+		setcontext(current_thread->getContext());
+	} else {
+		if (swapcontext(prev_thread->getContext(), current_thread->getContext()) == -1) {
+			std::cerr << "ERROR: swapcontext() failed!" << std::endl;
+			exit(1);
+		}
+	}
+	
 }
 
 
@@ -213,10 +222,47 @@ static void switchThreads()
 
 // Starting point for thread. Calls top-level thread function
 void stub(void *(*start_routine)(void *), void *arg) {
-    start_routine(arg);
-    // Ensure the thread exits properly
-    exit(0);
+    try {
+        std::cout << "[DEBUG] Entering stub: function ptr = " << (void*)start_routine 
+                  << ", arg ptr = " << arg << std::endl;
+        
+        // Validate start_routine
+        if (!start_routine) {
+            std::cerr << "[ERROR] start_routine is NULL!" << std::endl;
+            uthread_exit(nullptr);
+            return;
+        }
+
+        // Print the address of start_routine
+        std::cout << "[DEBUG] Calling start_routine at address: " << (void*)start_routine << std::endl;
+
+        // Run the thread function inside try-catch
+        void* result = nullptr;
+        try {
+			std::cout << "[DEBUG] Function pointer address: " << (void*)start_routine << std::endl;
+
+            result = start_routine(arg); // This is where the crash might happen
+            std::cout << "[DEBUG] Got the result here successfully: " << result << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "[ERROR] Thread function threw exception: " << e.what() << std::endl;
+            uthread_exit(nullptr);
+            return;
+        } catch (...) {
+            std::cerr << "[ERROR] Thread function threw unknown exception" << std::endl;
+            uthread_exit(nullptr);
+            return;
+        }
+
+        std::cout << "[DEBUG] Thread function completed successfully, result = " << result << std::endl;
+        uthread_exit(result);  // Pass the result to uthread_exit
+    } catch (...) {
+        std::cerr << "[FATAL] Exception in stub function" << std::endl;
+        uthread_exit(nullptr);
+    }
 }
+
+
+
 
 
 int uthread_init(int quantum_usecs)
@@ -224,39 +270,57 @@ int uthread_init(int quantum_usecs)
     // Initialize any data structures
     // Setup timer interrupt and handler
     // Create a thread for the caller (main) thread
-    // Inter check : set up alarm timer, but the handler does nothing right now, not critical
+    // Inter check: set up alarm timer, but the handler does nothing right now, not critical
     startInterruptTimer(quantum_usecs);
 
     // Create and initialize TCB for the main thread
     TCB *main_tcb = new TCB(0, Priority::ORANGE, nullptr, nullptr, State::RUNNING);
-    //addToReadyQueue(main_tcb);
-    current_thread = main_tcb;  // Set the current thread to the main thread
-    cout << "[DEBUG] Main thread initialized with TID 0." << endl;
+    
+    // Save main context at the start
+    if (getcontext(&main_context) == -1) {
+        std::cerr << "Failed to get main context" << std::endl;
+        exit(EXIT_FAILURE);
+    }
+
+    // Set current thread to the main thread
+    current_thread = main_tcb;
+    std::cout << "[DEBUG] Main thread initialized with TID 0." << std::endl;
 
     return 0;
 }
+
 
 static int next_tid = 1;
 
 int getNewTid() {
     return next_tid++;  
 }
-
-int uthread_create(void *(*start_routine)(void *), void *arg)
-{
-	// Create a new thread and add it to the ready queue
-	disableInterrupts();
-	int tid = getNewTid(); 
-	TCB *new_tcb = new TCB(tid, Priority::ORANGE, start_routine, arg, State::READY);
-    if (new_tcb == nullptr) {
+int uthread_create(void *(*start_routine)(void *), void *arg) {
+    disableInterrupts();
+    
+    int tid = getNewTid(); 
+    TCB *new_tcb = new TCB(tid, Priority::ORANGE, start_routine, arg, State::READY);
+    if (!new_tcb) {
         return -1; // Memory allocation failed
     }
-    addToReadyQueue(new_tcb);
-	cout << "[DEBUG] Created new thread with TID " << new_tcb->getId() << endl;
 
-	enableInterrupts();
-	return tid;
+    // Make sure the function pointer is not null
+    if (!start_routine) {
+        std::cerr << "[ERROR] Attempted to create thread with null function pointer!" << std::endl;
+        delete new_tcb;
+        enableInterrupts();
+        return -1;
+    }
+
+    addToReadyQueue(new_tcb);
+
+    std::cout << "[DEBUG] Created new thread with TID " << new_tcb->getId() << std::endl;
+	cout << "[DEBUG] uthread_create: start_routine = " << (void*)start_routine 
+	<< ", arg = " << arg << endl;
+    enableInterrupts();
+    return tid;
 }
+
 
 int uthread_join(int tid, void **retval)
 {
@@ -300,19 +364,22 @@ int uthread_yield(void)
     enableInterrupts();
 }
 
-
-
 void uthread_exit(void *retval) 
 {
     disableInterrupts();
+    
+    // Set the thread state to FINISH (terminated)
     current_thread->setState(State::FINISH);
-    //current_thread->setResult(retval);
-    
+
+    // Perform cleanup (if necessary)
+    // current_thread->setResult(retval);
+
+    // Switch back to the main context when thread finishes
+    setcontext(&main_context);  // This will jump back to main context
+
     enableInterrupts();
-    
-    switchThreads();
-    __builtin_unreachable();
 }
+
 
 int uthread_suspend(int tid)
 {
