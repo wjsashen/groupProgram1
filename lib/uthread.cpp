@@ -122,21 +122,10 @@ static TCB* current_thread = nullptr; // 当前运行线程
 static deque<TCB*> finished_queue;    // 已完成线程队列
 static deque<join_queue_entry_t> join_queue; // 等待队列
 static void switchThreads() {
-    static ucontext_t cont[2];  
-    //save the cur context to array first
-    if (current_thread != nullptr) {
-        // Save the context of the current thread using getcontext
-        // Get the current context and store it in cont[currentThread]
-        if (getcontext(&cont[0]) == -1) {
-            std::cerr << "ERROR: getcontext() failed!" << std::endl;
-            exit(1);
-        }
-        // Only re-queue threads that are not finished
-        if (current_thread->getState() != FINISH) {
-            current_thread->setState(READY);
-            addToReadyQueue(current_thread);
-        }
-    }
+    //save the cur context to array first is the way demo code but we got an segmentation fault on that way using array
+
+    // our prj current use thread context upper level context still
+
 
     // error check for ready queue
     if (ready_queue.empty()) {
@@ -150,6 +139,7 @@ static void switchThreads() {
             exit(EXIT_FAILURE);
         }
     }
+
     // Get the next thread from ready queue
     TCB* next_thread = popFromReadyQueue();
     if (!next_thread) {
@@ -157,9 +147,16 @@ static void switchThreads() {
         exit(1);
     }
     // Update the state of the new thread to RUNNING
+    next_thread->setState(RUNNING);
     next_thread->saveContext();
-    getcontext(&cont[1]); //save the new context to position1
-    TCB* prev_thread = current_thread;
+    TCB* prev_thread = current_thread; //DO SWAP HERE 
+    if (prev_thread != nullptr) {
+        // Only re-queue threads that are not finished
+        if (prev_thread->getState() != FINISH) {
+            prev_thread->setState(READY);
+            addToReadyQueue(prev_thread);
+        }
+    }
     // Ensure prev_thread is not null before accessing
     if (!prev_thread) {
         std::cerr << "Warning: prev_thread is NULL, using setcontext instead of swapcontext." << std::endl;
@@ -172,12 +169,10 @@ static void switchThreads() {
     flag = 1;
     current_thread->loadContext();
     cout<<"yield done current thread is "<<current_thread->getId()<<" prev thread that yield is "<<prev_thread->getId()<<endl;
-
-    //check and clean the finished
-    delete[] (char*)cont[0].uc_stack.ss_sp;
-    delete[] (char*)cont[1].uc_stack.ss_sp;
-
+    startInterruptTimer(1);
+    //TODO:add clean finished thread here
 }
+
 
 
 
@@ -188,43 +183,8 @@ static void switchThreads() {
 
 // Starting point for thread. Calls top-level thread function
 void stub(void *(*start_routine)(void *), void *arg) {
-    try {
-        std::cout << "[DEBUG] Entering stub: function ptr = " << (void*)start_routine 
-                  << ", arg ptr = " << arg << std::endl;
-        
-        // Validate start_routine
-        if (!start_routine) {
-            std::cerr << "[ERROR] start_routine is NULL!" << std::endl;
-            uthread_exit(nullptr);
-            return;
-        }
-
-        // Print the address of start_routine
-        std::cout << "[DEBUG] Calling start_routine at address: " << (void*)start_routine << std::endl;
-
-        // Run the thread function inside try-catch
-        void* result = nullptr;
-        try {
-			std::cout << "[DEBUG] Function pointer address: " << (void*)start_routine << std::endl;
-
-            result = start_routine(arg); // This is where the crash might happen
-            std::cout << "[DEBUG] Got the result here successfully: " << result << std::endl;
-        } catch (const std::exception& e) {
-            std::cerr << "[ERROR] Thread function threw exception: " << e.what() << std::endl;
-            uthread_exit(nullptr);
-            return;
-        } catch (...) {
-            std::cerr << "[ERROR] Thread function threw unknown exception" << std::endl;
-            uthread_exit(nullptr);
-            return;
-        }
-
-        std::cout << "[DEBUG] Thread function completed successfully, result = " << result << std::endl;
-        uthread_exit(result);  // Pass the result to uthread_exit
-    } catch (...) {
-        std::cerr << "[FATAL] Exception in stub function" << std::endl;
-        uthread_exit(nullptr);
-    }
+    void* retval = start_routine( arg );
+    uthread_exit( retval );
 }
 
 
@@ -237,17 +197,12 @@ int uthread_init(int quantum_usecs)
     // Setup timer interrupt and handler
     // Create a thread for the caller (main) thread
     // Inter check: set up alarm timer, but the handler does nothing right now, not critical
-    startInterruptTimer(quantum_usecs);
-
+    //startInterruptTimer(quantum_usecs);
     // Create and initialize TCB for the main thread
     TCB *main_tcb = new TCB(0, Priority::ORANGE, nullptr, nullptr, State::RUNNING);
-    
-
-
     // Set current thread to the main thread
     current_thread = main_tcb;
     std::cout << "[DEBUG] Main thread initialized with TID 0." << std::endl;
-
     return 0;
 }
 
