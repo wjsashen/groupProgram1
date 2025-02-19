@@ -1,13 +1,12 @@
 #include "TCB.h"
 
 
-#define STACK_SIZE 8192 
+
 
 TCB::TCB(int tid, Priority pr, void *(*start_routine)(void *), void *arg, State state)
 {
     getcontext(&_context); // Initialize the thread context
 
-    // Allocate stack memory for the new thread
     _context.uc_stack.ss_sp = malloc(STACK_SIZE);
     if (!_context.uc_stack.ss_sp)
     {
@@ -16,13 +15,10 @@ TCB::TCB(int tid, Priority pr, void *(*start_routine)(void *), void *arg, State 
     }
     _context.uc_stack.ss_size = STACK_SIZE;
     _context.uc_stack.ss_flags = 0;
-    _context.uc_link = nullptr; // No continuation after thread exit
+    _context.uc_link = nullptr;
 
-    // Set up the context to start executing at `stub`, passing function and argument
     makecontext(&_context, (void (*)())stub, 2, start_routine, arg);
 }
-
-
 
 TCB::~TCB()
 {
@@ -34,6 +30,7 @@ TCB::~TCB()
 
 void TCB::setState(State state)
 {
+    _state = state;
 }
 
 State TCB::getState() const
@@ -48,19 +45,20 @@ int TCB::getId() const
 
 void TCB::increaseQuantum()
 {
+    _quantum++;
 }
 
 int TCB::getQuantum() const
 {
-	return this->_quantum;
+    return _quantum;
 }
 
 int TCB::saveContext()
 {
-    return getcontext(&_context);  // Save the current execution context
+    return getcontext(&_context);
 }
 
 void TCB::loadContext()
 {
-    setcontext(&_context);  // Restore the saved execution context
+    setcontext(&_context);
 }
