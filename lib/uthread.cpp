@@ -70,17 +70,29 @@ static void enableInterrupts()
 // Queue Management ------------------------------------------------------------
 
 // Add TCB to the back of the ready queue
-void addToReadyQueue(TCB *tcb)
-{
-	ready_queue.push_back(tcb);
+void addToReadyQueue(TCB* tcb) {
+    if (!tcb) {
+        std::cerr << "[ERROR] Attempted to add NULL TCB to ready queue!" << std::endl;
+        return;
+    }
+
+    std::cout << "[DEBUG] Adding TID " << tcb->getId() << " to ready queue." << std::endl;
+    tcb->setState(READY);
+    ready_queue.push_back(tcb);
 }
+
 
 // Removes and returns the first TCB on the ready queue
 // NOTE: Assumes at least one thread on the ready queue
 TCB *popFromReadyQueue()
 {
 	assert(!ready_queue.empty());
-
+	std::cout << "[DEBUG] Ready queue contents before switch: ";
+	for (auto t : ready_queue) {
+		std::cout << "TID " << t->getId() << " ";
+	}
+	std::cout << std::endl;
+	
 	TCB *ready_queue_head = ready_queue.front();
 	ready_queue.pop_front();
 	return ready_queue_head;
@@ -217,7 +229,7 @@ int uthread_init(int quantum_usecs)
 
     // Create and initialize TCB for the main thread
     TCB *main_tcb = new TCB(0, Priority::ORANGE, nullptr, nullptr, State::RUNNING);
-    addToReadyQueue(main_tcb);
+    //addToReadyQueue(main_tcb);
     current_thread = main_tcb;  // Set the current thread to the main thread
     cout << "[DEBUG] Main thread initialized with TID 0." << endl;
 
@@ -239,10 +251,6 @@ int uthread_create(void *(*start_routine)(void *), void *arg)
     if (new_tcb == nullptr) {
         return -1; // Memory allocation failed
     }
-
-    new_tcb->setState(READY);
-
-    // Step 3: Add the new TCB to the ready queue
     addToReadyQueue(new_tcb);
 	cout << "[DEBUG] Created new thread with TID " << new_tcb->getId() << endl;
 
@@ -282,49 +290,14 @@ int uthread_join(int tid, void **retval)
 }
 int uthread_yield(void)
 {
-    std::cout << "[DEBUG] Entering uthread_yield function." << std::endl;
-
-    // ==================== Critical Section Start ====================
     disableInterrupts();
-    std::cout << "[DEBUG] Interrupts disabled." << std::endl;
 
-    // Check if there is an active thread
-    if (current_thread == nullptr) {
-        std::cout << "[DEBUG] No active thread. Exiting uthread_yield." << std::endl;
-        enableInterrupts();
-        return -1;  // Error: No active thread
-    }
+    std::cout << "[DEBUG] Entering uthread_yield function." << std::endl;
+    std::cout << "[DEBUG] Yielding current thread TID: " << current_thread->getId() << std::endl;
 
-    // Ensure the current thread is in the running state before yielding
-    if (current_thread->getState() != RUNNING) {
-        std::cout << "[DEBUG] Current thread is not running. Exiting uthread_yield." << std::endl;
-        enableInterrupts();
-        return -1;  // Error: Only running threads can yield
-    }
-
-    // Update the current thread state to READY
-    std::cout << "[DEBUG] Updating current thread state to READY." << std::endl;
-    current_thread->setState(READY);
-
-    // Add the current thread back to the ready queue (Round Robin scheduling)
-    std::cout << "[DEBUG] Adding current thread to the ready queue." << std::endl;
-    addToReadyQueue(current_thread);
-
-    // Update the thread's quantum (time slice) count
-    std::cout << "[DEBUG] Increasing current thread's quantum." << std::endl;
-    current_thread->increaseQuantum();
+    switchThreads();  // This will already add the current thread if needed
 
     enableInterrupts();
-    std::cout << "[DEBUG] Interrupts enabled." << std::endl;
-    // ==================== Critical Section End ====================
-
-    // Perform the context switch
-    std::cout << "[DEBUG] Performing context switch." << std::endl;
-    switchThreads();
-
-    // The thread will continue here once it is rescheduled
-    std::cout << "[DEBUG] Returning from uthread_yield after context switch." << std::endl;
-    return 0;
 }
 
 
