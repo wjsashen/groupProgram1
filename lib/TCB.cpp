@@ -14,7 +14,7 @@ TCB::TCB(int tid, Priority pr, void *(*start_routine)(void *), void *arg, State 
         _context.uc_stack.ss_sp = _stack;
         _context.uc_stack.ss_size = STACK_SIZE;
         _context.uc_stack.ss_flags = 0;
-        makecontext(&_context, (void(*)())stub, 2, start_routine, arg);
+        makecontext(&_context, (void (*)())stub, 2, start_routine, arg);
     }
 }
 

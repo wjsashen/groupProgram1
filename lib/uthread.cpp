@@ -166,11 +166,20 @@ static void switchThreads()
 
     // 取出下一个线程
     TCB* next_thread = ready_queue.front();
+	if (!next_thread) {
+		std::cerr << "Error: next_thread is NULL in switchThreads()" << std::endl;
+		exit(1);
+	}
+
+	
     ready_queue.pop_front();
 	cout << "[DEBUG] Switching to thread " << next_thread->getId() << endl;
     // 更新线程状态
     next_thread->setState(RUNNING);
     TCB* prev_thread = current_thread;
+	if (!prev_thread) {
+		std::cerr << "Warning: prev_thread is NULL, using setcontext instead of swapcontext." << std::endl;
+	}
     current_thread = next_thread;
 
     enableInterrupts();
@@ -191,10 +200,11 @@ static void switchThreads()
 
 // Starting point for thread. Calls top-level thread function
 void stub(void *(*start_routine)(void *), void *arg) {
-    enableInterrupts();  // Enable interrupts as we enter the thread
-    void *retval = start_routine(arg);  // Run the actual thread function
-    uthread_exit(retval);  // Exit thread with return value
+    start_routine(arg);
+    // Ensure the thread exits properly
+    exit(0);
 }
+
 
 int uthread_init(int quantum_usecs)
 {
