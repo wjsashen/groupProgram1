@@ -118,33 +118,51 @@ int removeFromReadyQueue(int tid)
 // Helper functions ------------------------------------------------------------
 
 static void switchThreads() {
-  disableInterrupts();
+    disableInterrupts();  // 进入临界区
 
-  //save the context of current thread
-  TCB* current = curr;
-  getcontext(&current->context);
+    TCB* old_thread = current_thread;  // 获取当前线程
 
-  //set the state of thread into READY
-  if (current->getState() == RUNNING) {
-    current->setState(READY);
-    addToReadyQueue(current);
-  }
+    // 保存当前线程上下文
+    if (old_thread->saveContext() == -1) {
+        std::cerr << "[ERROR] Failed to save context for TID " 
+                  << old_thread->getId() << std::endl;
+    }
 
-  //take next thread from ready queue
-  curr = popFromReadyQueue();
-  if (!curr) {
-    std::cerr << "FATAL: No available threads!" << std::endl;
-    exit(EXIT_FAILURE);
-  }
-  curr->setState(RUNNING);
-  std::cout << "Switching from TID "<< current->getId() << " to TID " << curr->getId() << std::endl;
+    // 仅当线程仍处于运行状态时才重新调度
+    if (old_thread->getState() == RUNNING) {
+        old_thread->setState(READY);
+        
+        // 防御性检查：确保未终止线程入队
+        if (old_thread->getState() != FINISH) {
+            addToReadyQueue(old_thread);
+            std::cout << "[CTX] Requeued TID " << old_thread->getId()
+                      << " (qsize: " << ready_queue.size() << ")" << std::endl;
+        }
+    }
 
-  //exchange context into new thread
-  enableInterrupts();
-  setcontext(&curr->context);  
+    // 选择新线程（带空队列检查）
+    if (ready_queue.empty()) {
+        std::cerr << "[FATAL] No threads in ready queue!" << std::endl;
+        exit(EXIT_FAILURE);
+    }
+    
+    current_thread = popFromReadyQueue();
+    current_thread->setState(RUNNING);
+    
+    // 更新线程量子计数
+    current_thread->increaseQuantum();
+    
+    std::cout << "[CTX] Switching from TID " << old_thread->getId() 
+              << " (state: " << stateToString(old_thread->getState())
+              << ") to TID " << current_thread->getId() 
+              << " (prio: " << priorityToString(current_thread->getPriority())
+              << ")" << std::endl;
+
+    enableInterrupts();  // 退出临界区
+    
+    // 执行上下文切换
+    current_thread->loadContext();
 }
-
-
 
 // Library functions -----------------------------------------------------------
 
