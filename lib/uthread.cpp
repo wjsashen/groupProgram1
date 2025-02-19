@@ -119,17 +119,26 @@ int removeFromReadyQueue(int tid)
 static TCB* current_thread = nullptr; // 当前运行线程
 static deque<TCB*> finished_queue;    // 已完成线程队列
 static deque<join_queue_entry_t> join_queue; // 等待队列
-
-// Switch to the next ready thread
 static void switchThreads() {
     // ==================== 保存当前上下文 ====================
     if (current_thread != nullptr) {
-        // Save current thread context
-        if (current_thread->saveContext() == -1) {
-            cerr << "Failed to save context for TID: " << current_thread->getId() << endl;
-            enableInterrupts();
-            return;
+        // Save the context of the current thread using getcontext
+        static ucontext_t cont[2];  // Array for two threads' contexts
+        static int currentThread = 0;  // Global variable for the current thread
+
+        // Check if currentThread is within bounds
+        if (currentThread < 0 || currentThread >= 2) {
+            std::cerr << "ERROR: currentThread out of bounds" << std::endl;
+            exit(1);
         }
+
+        // Get the current context and store it in cont[currentThread]
+        if (getcontext(&cont[currentThread]) == -1) {
+            std::cerr << "ERROR: getcontext() failed!" << std::endl;
+            exit(1);
+        }
+
+        std::cout << "SWITCH: currentThread = " << currentThread << std::endl;
 
         // Only re-queue threads that are not finished
         if (current_thread->getState() != FINISH) {
@@ -180,7 +189,7 @@ static void switchThreads() {
     }
 
     ready_queue.pop_front();
-    cout << "[DEBUG] Switching to thread " << next_thread->getId() << endl;
+    std::cout << "[DEBUG] Switching to thread " << next_thread->getId() << std::endl;
 
     // Update the state of the new thread to RUNNING
     next_thread->setState(RUNNING);
@@ -202,7 +211,7 @@ static void switchThreads() {
         exit(1);
     }
 
-    cout << "SWITCH: currentThread = " << currentThread << endl;
+    std::cout << "SWITCH: currentThread = " << currentThread << std::endl;
 
     // Ensure we're not calling getcontext() after the first return
     volatile int flag = 0;  // Local flag variable for each thread
@@ -215,7 +224,7 @@ static void switchThreads() {
     currentThread = 1 - currentThread;  // Switch to the other thread
 
     // Debug the thread switching information
-    cout << "Switching from thread " << prev_thread->getId() 
+    std::cout << "Switching from thread " << prev_thread->getId() 
          << " to thread " << current_thread->getId() << std::endl;
 
     std::cout << "Prev thread state: " << prev_thread->getState() << std::endl;
@@ -227,6 +236,7 @@ static void switchThreads() {
         std::cerr << "ERROR: setcontext() failed!" << std::endl;
         exit(1);
     }
+    std::cout << "set done" << std::endl;
 }
 
 
