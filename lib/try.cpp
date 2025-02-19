@@ -125,7 +125,7 @@ static void switchThreads() {
     
     // 保存当前上下文
     TCB* old_thread = curr;
-    int ret_val = getcontext(&old_thread);
+    int ret_val = getcontext(&old_thread->context);
 
     // 仅当线程仍可运行时重新入队
     if (old_thread->getState() == RUNNING) {
@@ -141,7 +141,7 @@ static void switchThreads() {
     }
     curr->setState(RUNNING);
     enableInterrupts();
-    setcontext(&curr);
+    setcontext(&curr->context);
     
     std::cout << "[CTX] Switching from TID " << old_thread->getId() << " to TID " << curr->getId() << std::endl;
 }
