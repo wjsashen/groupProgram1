@@ -6,18 +6,16 @@
 TCB::TCB(int tid, Priority pr, void *(*start_routine)(void *), void *arg, State state)
 {
     getcontext(&_context); // Initialize the thread context
-
-    _context.uc_stack.ss_sp = malloc(STACK_SIZE);
-    if (!_context.uc_stack.ss_sp)
-    {
-        std::cerr << "Failed to allocate stack memory\n";
-        exit(1);
+    _tid = tid;
+    _quantum = 0;
+    _state = state;
+    if (tid > 0) {
+        _stack = new char[STACK_SIZE];
+        _context.uc_stack.ss_sp = _stack;
+        _context.uc_stack.ss_size = STACK_SIZE;
+        _context.uc_stack.ss_flags = 0;
+        makecontext(&_context, (void(*)())stub, 2, start_routine, arg);
     }
-    _context.uc_stack.ss_size = STACK_SIZE;
-    _context.uc_stack.ss_flags = 0;
-    _context.uc_link = nullptr;
-
-    makecontext(&_context, (void (*)())stub, 2, start_routine, arg);
 }
 
 TCB::~TCB()

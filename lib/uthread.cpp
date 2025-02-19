@@ -167,7 +167,7 @@ static void switchThreads()
     // 取出下一个线程
     TCB* next_thread = ready_queue.front();
     ready_queue.pop_front();
-    
+	cout << "[DEBUG] Switching to thread " << next_thread->getId() << endl;
     // 更新线程状态
     next_thread->setState(RUNNING);
     TCB* prev_thread = current_thread;
@@ -190,9 +190,10 @@ static void switchThreads()
 // function must do
 
 // Starting point for thread. Calls top-level thread function
-void stub(void *(*start_routine)(void *), void *arg)
-{
-	// TODO
+void stub(void *(*start_routine)(void *), void *arg) {
+    enableInterrupts();  // Enable interrupts as we enter the thread
+    void *retval = start_routine(arg);  // Run the actual thread function
+    uthread_exit(retval);  // Exit thread with return value
 }
 
 int uthread_init(int quantum_usecs)
@@ -206,6 +207,7 @@ int uthread_init(int quantum_usecs)
     // Create and initialize TCB for the main thread
 	TCB *main_tcb = new TCB(0, Priority::ORANGE, nullptr, nullptr, State::RUNNING);    
 	addToReadyQueue(main_tcb);
+    cout << "[DEBUG] Main thread initialized with TID 0." << endl;
 
     return 0;
 }
@@ -219,9 +221,8 @@ int uthread_create(void *(*start_routine)(void *), void *arg)
 {
 	// Create a new thread and add it to the ready queue
 	disableInterrupts();
-
-	TCB *new_tcb = new TCB(getNewTid(), Priority::ORANGE, start_routine, arg, State::READY);
-		int tid = getNewTid(); 
+	int tid = getNewTid(); 
+	TCB *new_tcb = new TCB(tid, Priority::ORANGE, start_routine, arg, State::READY);
     if (new_tcb == nullptr) {
         return -1; // Memory allocation failed
     }
@@ -230,6 +231,8 @@ int uthread_create(void *(*start_routine)(void *), void *arg)
 
     // Step 3: Add the new TCB to the ready queue
     addToReadyQueue(new_tcb);
+	cout << "[DEBUG] Created new thread with TID " << new_tcb->getId() << endl;
+
 	enableInterrupts();
 	return tid;
 }
