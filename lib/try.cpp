@@ -4,7 +4,10 @@
 #include <deque>
 
 using namespace std;
+
 TCB *curr;
+static ucontext_t cont[2];
+
 // Finished queue entry type
 typedef struct finished_queue_entry
 {
@@ -118,51 +121,32 @@ int removeFromReadyQueue(int tid)
 // Helper functions ------------------------------------------------------------
 
 static void switchThreads() {
-    disableInterrupts();  // 进入临界区
+    disableInterrupts();
+    
+    // 保存当前上下文
+    TCB* old_thread = curr;
+    int ret_val = getcontext(&old_thread);
 
-    TCB* old_thread = current_thread;  // 获取当前线程
-
-    // 保存当前线程上下文
-    if (old_thread->saveContext() == -1) {
-        std::cerr << "[ERROR] Failed to save context for TID " 
-                  << old_thread->getId() << std::endl;
-    }
-
-    // 仅当线程仍处于运行状态时才重新调度
+    // 仅当线程仍可运行时重新入队
     if (old_thread->getState() == RUNNING) {
         old_thread->setState(READY);
-        
-        // 防御性检查：确保未终止线程入队
-        if (old_thread->getState() != FINISH) {
-            addToReadyQueue(old_thread);
-            std::cout << "[CTX] Requeued TID " << old_thread->getId()
-                      << " (qsize: " << ready_queue.size() << ")" << std::endl;
-        }
+        addToReadyQueue(old_thread);
     }
 
-    // 选择新线程（带空队列检查）
-    if (ready_queue.empty()) {
-        std::cerr << "[FATAL] No threads in ready queue!" << std::endl;
+    // 选择新线程
+    curr = popFromReadyQueue();
+    if (!curr) {
+        std::cerr << "[FATAL] No available threads!" << std::endl;
         exit(EXIT_FAILURE);
     }
+    curr->setState(RUNNING);
+    enableInterrupts();
+    setcontext(&curr);
     
-    current_thread = popFromReadyQueue();
-    current_thread->setState(RUNNING);
-    
-    // 更新线程量子计数
-    current_thread->increaseQuantum();
-    
-    std::cout << "[CTX] Switching from TID " << old_thread->getId() 
-              << " (state: " << stateToString(old_thread->getState())
-              << ") to TID " << current_thread->getId() 
-              << " (prio: " << priorityToString(current_thread->getPriority())
-              << ")" << std::endl;
-
-    enableInterrupts();  // 退出临界区
-    
-    // 执行上下文切换
-    current_thread->loadContext();
+    std::cout << "[CTX] Switching from TID " << old_thread->getId() << " to TID " << curr->getId() << std::endl;
 }
+
+
 
 // Library functions -----------------------------------------------------------
 
