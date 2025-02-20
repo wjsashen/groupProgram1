@@ -122,12 +122,7 @@ static TCB* current_thread = nullptr; // 当前运行线程
 static deque<TCB*> finished_queue;    // 已完成线程队列
 static deque<join_queue_entry_t> join_queue; // 等待队列
 static void switchThreads() {
-    //save the cur context to array first is the way demo code but we got an segmentation fault on that way using array
-
-    // our prj current use thread context upper level context still
-
-
-    // error check for ready queue
+    // Error check for ready queue
     if (ready_queue.empty()) {
         if (current_thread && current_thread->getState() == FINISH) {
             cerr << "All threads completed" << endl;
@@ -140,41 +135,48 @@ static void switchThreads() {
         }
     }
 
-    // Get the next thread from ready queue
-    TCB* next_thread = popFromReadyQueue();
-    if (!next_thread) {
-        std::cerr << "Error: next_thread is NULL in switchThreads()" << std::endl;
-        exit(1);
-    }
-    // Update the state of the new thread to RUNNING
-    next_thread->setState(RUNNING);
-    next_thread->saveContext();
-    TCB* prev_thread = current_thread; //DO SWAP HERE 
+    TCB* prev_thread = current_thread; // Save the current thread for swap
     if (prev_thread != nullptr) {
         // Only re-queue threads that are not finished
         if (prev_thread->getState() != FINISH) {
             prev_thread->setState(READY);
-            addToReadyQueue(prev_thread);
+            addToReadyQueue(prev_thread);  // Add to ready queue after finishing
         }
     }
+
+    // Get the next thread from the ready queue
+    current_thread = popFromReadyQueue();
+    if (!current_thread) {
+        std::cerr << "Error: next_thread is NULL in switchThreads()" << std::endl;
+        exit(1);
+    }
+
+    // Update the state of the new thread to RUNNING
+    current_thread->setState(RUNNING);
+
+    // Save the context of the previous thread
+    if (prev_thread != nullptr) {
+        if (getcontext(current_thread->getContext()) == -1) {
+            std::cerr << "Error saving context for previous thread" << std::endl;
+            exit(EXIT_FAILURE);
+        }
+    }
+
     // Ensure prev_thread is not null before accessing
     if (!prev_thread) {
         std::cerr << "Warning: prev_thread is NULL, using setcontext instead of swapcontext." << std::endl;
     }
-    current_thread = next_thread;
-    volatile int flag = 0;  // Local flag variable for each thread
-    if (flag == 1) {
-        return;  // Resume the current thread
+
+    // Now switch to the new thread
+    std::cout << "Switching to current_thread: " << current_thread->getId() << std::endl;
+    if (setcontext(current_thread->getContext()) == -1) {
+        std::cerr << "Error switching to current thread" << std::endl;
+        exit(EXIT_FAILURE);
     }
-    flag = 1;
-    current_thread->loadContext();
-    cout<<"yield done current thread is "<<current_thread->getId()<<" prev thread that yield is "<<prev_thread->getId()<<endl;
-    startInterruptTimer(1);
-    //TODO:add clean finished thread here
+
+    std::cout << "yield done, current thread is " << current_thread->getId() 
+              << " prev thread that yielded is " << prev_thread->getId() << std::endl;
 }
-
-
-
 
 // Library functions -----------------------------------------------------------
 
@@ -276,9 +278,9 @@ int uthread_yield(void)
     std::cout << "[DEBUG] Entering uthread_yield function." << std::endl;
     std::cout << "[DEBUG] Yielding current thread TID: " << current_thread->getId() << std::endl;
 
-    switchThreads();  // This will already add the current thread if needed
+    switchThreads();  
 
-    enableInterrupts();
+    //enableInterrupts();
 }
 
 void uthread_exit(void *retval) 

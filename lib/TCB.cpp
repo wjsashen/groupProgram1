@@ -104,10 +104,16 @@ int TCB::getQuantum() const
 
 int TCB::saveContext()
 {
-    return getcontext(&_context);
+    if (getcontext(&_context) == -1) {
+        throw std::runtime_error("Failed to get context");
+    }
+    return 0;
 }
 
 void TCB::loadContext()
 {
-    setcontext(&_context);
+    if (setcontext(&_context) == -1) {
+        std::cerr << "Error: setcontext failed" << std::endl;
+        throw std::runtime_error("Failed to set context");
+    }
 }
