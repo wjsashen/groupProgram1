@@ -33,7 +33,7 @@ typedef struct join_queue_entry
 
 // Queues
 static deque<TCB *> ready_queue;
-
+int total_quantums = 0;
 // Interrupt Management --------------------------------------------------------
 
 // Start a countdown timer to fire an interrupt
@@ -134,14 +134,13 @@ static void switchThreads() {
             exit(EXIT_FAILURE);
         }
     }
+    if (getcontext(current_thread->getContext()) == -1) {
+        std::cerr << "Error saving context for previous thread" << std::endl;
+        exit(EXIT_FAILURE);
+    }
     TCB* prev_thread = current_thread; // Save the current thread for swap
 
-    if (prev_thread != nullptr) {
-        if (getcontext(prev_thread->getContext()) == -1) {
-            std::cerr << "Error saving context for previous thread" << std::endl;
-            exit(EXIT_FAILURE);
-        }
-    }
+
     current_thread = popFromReadyQueue();
     //modify prev here:
     if (prev_thread != nullptr) {
@@ -311,15 +310,15 @@ int uthread_once(uthread_once_t *once_control, void (*init_routine)(void))
 
 int uthread_self()
 {
-	// TODO
+    return current_thread->getId( );
 }
 
 int uthread_get_total_quantums()
 {
-	// TODO
+    return total_quantums;
 }
 
-int uthread_get_quantums(int tid)
+int uthread_get_quantums( int tid )
 {
-	// TODO
+    return -1;
 }

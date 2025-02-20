@@ -127,10 +127,23 @@ int main(int argc, char *argv[])
         threads[i] = tid;
     }
 
-	uthread_yield();
-	uthread_yield();
-	uthread_yield();
+    /* Join each thread and compute the result */
+    unsigned long g_cnt = 0;
+    for (int i = 0; i < thread_count; i++)
+    {
+        /* Collect the result from the user via their allocated heap pointer */
+        //unsigned long *local_cnt;
+        //uthread_join(threads[i], (void **)&local_cnt);
 
+        /* Deallocate pointer to get the actual count*/
+        //g_cnt += *local_cnt;
+
+        /* Deallocate thread result on the heap */
+        //delete local_cnt;
+        
+    }
+    //for intermediate
+    uthread_yield();
     delete[] threads;
 
     /**
@@ -138,7 +151,7 @@ int main(int argc, char *argv[])
      * is Pi/4 points thus if we take our ration of points and multiple by 4 we get our estimation of Pi
      * which is then divided by the total number of points computed
      */
-    //printf("\nFinal Estimation of Pi: [%f]\n", (4. * (double)g_cnt) / ((double)points_per_thread * thread_count));
+    printf("\nFinal Estimation of Pi: [%f]\n", (4. * (double)g_cnt) / ((double)points_per_thread * thread_count));
 
     return 0;
 }

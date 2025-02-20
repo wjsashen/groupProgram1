@@ -102,10 +102,23 @@ $2 = (TCB *) 0x555555574200
 
 According to moring office hour, we modify the save/load ->get/set context
 got a new issue:
+[DEBUG] Yielding current thread TID: 0
+[DEBUG] Ready queue contents before switch: TID 1 TID 2 TID 3 TID 4 TID 5 TID 6 TID 7 TID 8 
+[DEBUG] Adding TID 0 to ready queue.
 Switching to current_thread: 1
-Switching to current_thread: 1
-Switching to current_thread: 1
-Switching to current_thread: 1
-it keep printing the same message.
+Illegal instruction (core dumped)
+gdb trace:
+B::getContext (this=0x555555574200) at lib/TCB.h:88
+88              ucontext_t* getContext() { return &_context; }
+(gdb) n
 
+Program received signal SIGILL, Illegal instruction.
+0x0000555555557d7f in uthread_once (once_control=0x555555560294 <uthread_once_control>, 
+    init_routine=0x555555556649 <init_routine_srand()>) at lib/uthread.cpp:305
+305     {
+(gdb) n
+
+Program terminated with signal SIGILL, Illegal instruction.
+
+according to debug log, the set context is not done yet when crash
 We are still fixing this, already sent email to prof for help. 
