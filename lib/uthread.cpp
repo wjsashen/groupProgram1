@@ -134,8 +134,16 @@ static void switchThreads() {
             exit(EXIT_FAILURE);
         }
     }
-
     TCB* prev_thread = current_thread; // Save the current thread for swap
+
+    if (prev_thread != nullptr) {
+        if (getcontext(prev_thread->getContext()) == -1) {
+            std::cerr << "Error saving context for previous thread" << std::endl;
+            exit(EXIT_FAILURE);
+        }
+    }
+    current_thread = popFromReadyQueue();
+    //modify prev here:
     if (prev_thread != nullptr) {
         // Only re-queue threads that are not finished
         if (prev_thread->getState() != FINISH) {
@@ -143,31 +151,15 @@ static void switchThreads() {
             addToReadyQueue(prev_thread);  // Add to ready queue after finishing
         }
     }
-
-    // Get the next thread from the ready queue
-    current_thread = popFromReadyQueue();
     if (!current_thread) {
         std::cerr << "Error: next_thread is NULL in switchThreads()" << std::endl;
         exit(1);
     }
-
-    // Update the state of the new thread to RUNNING
     current_thread->setState(RUNNING);
-
-    // Save the context of the previous thread
-    if (prev_thread != nullptr) {
-        if (getcontext(current_thread->getContext()) == -1) {
-            std::cerr << "Error saving context for previous thread" << std::endl;
-            exit(EXIT_FAILURE);
-        }
-    }
-
-    // Ensure prev_thread is not null before accessing
     if (!prev_thread) {
         std::cerr << "Warning: prev_thread is NULL, using setcontext instead of swapcontext." << std::endl;
     }
 
-    // Now switch to the new thread
     std::cout << "Switching to current_thread: " << current_thread->getId() << std::endl;
     if (setcontext(current_thread->getContext()) == -1) {
         std::cerr << "Error switching to current thread" << std::endl;
