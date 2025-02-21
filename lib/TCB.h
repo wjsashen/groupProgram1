@@ -84,15 +84,14 @@ public:
 	 * function that loads the thread's previously saved context
 	 */
 	void loadContext();
-
-	ucontext_t* getContext() { return &_context; }
+    ucontext_t _context;    // The thread's saved context
+	//put it public here
 private:
 	int _tid;               // The thread id number.
 	Priority _pr;           // The priority of the thread (Red, orange or green)
 	int _quantum;           // The time interval, as explained in the pdf.
 	State _state;           // The state of the thread
 	char* _stack;           // The thread's stack
-    ucontext_t _context;    // The thread's saved context
 };
 
 

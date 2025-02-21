@@ -43,10 +43,10 @@ TCB::TCB(int tid, Priority pr, void *(*start_routine)(void *), void *arg, State 
         _context.uc_stack.ss_sp = _stack;  // No need for manual alignment
         _context.uc_stack.ss_size = STACK_SIZE;
         _context.uc_stack.ss_flags = 0;
-        _context.uc_link = nullptr;
+        //_context.uc_link = nullptr;
 
         // Clear signal mask
-        sigemptyset(&_context.uc_sigmask);
+        //sigemptyset(&_context.uc_sigmask);
 
         // Verify function pointer before makecontext
         if (!start_routine) {

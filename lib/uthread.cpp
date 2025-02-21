@@ -13,7 +13,7 @@ typedef struct finished_queue_entry
 	TCB *tcb;	  // Pointer to TCB
 	void *result; // Pointer to thread result (output)
 } finished_queue_entry_t;
-
+static sigset_t mask;
 // Join queue entry type
 typedef struct join_queue_entry
 {
@@ -61,12 +61,16 @@ static void startInterruptTimer(int quantum_usecs)
 static void disableInterrupts()
 {
 	// TODO
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGVTALRM);
+    sigprocmask(SIG_BLOCK, &mask, nullptr);
 }
 
 // Unblock signals to re-enable timer interrupt
 static void enableInterrupts()
 {
 	// TODO
+    sigprocmask(SIG_UNBLOCK, &mask, nullptr);
 }
 
 // Queue Management ------------------------------------------------------------
@@ -134,7 +138,7 @@ static void switchThreads() {
             exit(EXIT_FAILURE);
         }
     }
-    if (getcontext(current_thread->getContext()) == -1) {
+    if (getcontext(&current_thread->_context) == -1) {
         std::cerr << "Error saving context for previous thread" << std::endl;
         exit(EXIT_FAILURE);
     }
@@ -160,7 +164,7 @@ static void switchThreads() {
     }
 
     std::cout << "Switching to current_thread: " << current_thread->getId() << std::endl;
-    if (setcontext(current_thread->getContext()) == -1) {
+    if (getcontext(&current_thread->_context) == -1) {
         std::cerr << "Error switching to current thread" << std::endl;
         exit(EXIT_FAILURE);
     }
@@ -271,7 +275,8 @@ int uthread_yield(void)
 
     switchThreads();  
 
-    //enableInterrupts();
+    enableInterrupts();
+    return 1;
 }
 
 void uthread_exit(void *retval) 
@@ -281,11 +286,19 @@ void uthread_exit(void *retval)
     // Set the thread state to FINISH (terminated)
     current_thread->setState(State::FINISH);
 
-    // Perform cleanup (if necessary)
-    // current_thread->setResult(retval);
+    finished_queue.push_back(current_thread);
 
+    // Wake up any threads waiting for this one
+    for (auto it = join_queue.begin(); it != join_queue.end();) {
+        if (it->waiting_for_tid == current_thread->getId()) {
+            addToReadyQueue(it->tcb);
+            it = join_queue.erase(it);
+        } else {
+            ++it;
+        }
+    }
 
-    enableInterrupts();
+    switchThreads(); 
 }
 
 
@@ -293,11 +306,13 @@ int uthread_suspend(int tid)
 {
 	// Move the thread specified by tid from whatever state it is
 	// in to the block queue
+    return 1;
 }
 
 int uthread_resume(int tid)
 {
 	// Move the thread specified by tid back to the ready queue
+    return tid;
 }
 
 int uthread_once(uthread_once_t *once_control, void (*init_routine)(void))
@@ -306,6 +321,7 @@ int uthread_once(uthread_once_t *once_control, void (*init_routine)(void))
 	// the init_routine
 	// Pay attention to what needs to be accessed and modified in a critical region
 	// (critical meaning interrupts disabled)
+    return 0;
 }
 
 int uthread_self()
