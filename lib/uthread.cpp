@@ -14,6 +14,8 @@ typedef struct finished_queue_entry
 	void *result; // Pointer to thread result (output)
 } finished_queue_entry_t;
 static sigset_t mask;
+static int next_tid = 1;
+
 // Join queue entry type
 typedef struct join_queue_entry
 {
@@ -70,8 +72,6 @@ static void disableInterrupts()
 static void enableInterrupts()
 {
 	// TODO
-    sigemptyset(&mask);                // Initialize an empty signal set
-    sigaddset(&mask, SIGVTALRM);        // Add SIGVTALRM to the set
     sigprocmask(SIG_UNBLOCK, &mask, nullptr);
 }
 
@@ -206,7 +206,6 @@ int uthread_init(int quantum_usecs)
 }
 
 
-static int next_tid = 1;
 
 int getNewTid() {
     return next_tid++;  
