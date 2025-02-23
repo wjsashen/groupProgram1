@@ -121,4 +121,4 @@ Program received signal SIGILL, Illegal instruction.
 Program terminated with signal SIGILL, Illegal instruction.
 
 according to debug log, the set context is not done yet when crash
-We are still fixing this, already sent email to prof for help. 
+dealt it with add return value to _once function.

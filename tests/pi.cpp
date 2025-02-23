@@ -132,18 +132,18 @@ int main(int argc, char *argv[])
     for (int i = 0; i < thread_count; i++)
     {
         /* Collect the result from the user via their allocated heap pointer */
-        //unsigned long *local_cnt;
-        //uthread_join(threads[i], (void **)&local_cnt);
+        unsigned long *local_cnt;
+        uthread_join(threads[i], (void **)&local_cnt);
 
         /* Deallocate pointer to get the actual count*/
-        //g_cnt += *local_cnt;
+        g_cnt += *local_cnt;
 
         /* Deallocate thread result on the heap */
-        //delete local_cnt;
+        delete local_cnt;
         
     }
     //for intermediate
-    uthread_yield();
+    //uthread_yield();
     delete[] threads;
 
     /**

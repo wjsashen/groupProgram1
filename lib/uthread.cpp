@@ -70,6 +70,8 @@ static void disableInterrupts()
 static void enableInterrupts()
 {
 	// TODO
+    sigemptyset(&mask);                // Initialize an empty signal set
+    sigaddset(&mask, SIGVTALRM);        // Add SIGVTALRM to the set
     sigprocmask(SIG_UNBLOCK, &mask, nullptr);
 }
 
