@@ -13,6 +13,11 @@ typedef struct finished_queue_entry
 	TCB *tcb;	  // Pointer to TCB
 	void *result; // Pointer to thread result (output)
 } finished_queue_entry_t;
+<<<<<<< HEAD
+=======
+static sigset_t mask;
+static int next_tid = 1;
+>>>>>>> 19b1dcee54fc706fce22c5a8616f4342729e5f32
 
 // Join queue entry type
 typedef struct join_queue_entry
@@ -217,7 +222,11 @@ int uthread_init(int quantum_usecs)
     return 0;
 }
 
+<<<<<<< HEAD
 static int next_tid = 1;
+=======
+
+>>>>>>> 19b1dcee54fc706fce22c5a8616f4342729e5f32
 
 int getNewTid() {
     return next_tid++;  
