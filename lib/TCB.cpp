@@ -1,7 +1,5 @@
 #include "TCB.h"
-
 #include <cstdint>
-
 
 
 TCB::TCB(int tid, Priority pr, void *(*start_routine)(void *), void *arg, State state) {
