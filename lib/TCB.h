@@ -74,16 +74,6 @@ public:
 	 */
 	 int getQuantum() const;
 
-	/**
-	 * function that saves the thread's context
-         * @return zero on success, -1 on failure
-	 */
-	int saveContext();
-
-	/**
-	 * function that loads the thread's previously saved context
-	 */
-	void loadContext();
     ucontext_t _context;    // The thread's saved context
 	//put it public here
 private:

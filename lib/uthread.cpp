@@ -6,14 +6,14 @@
 #include <ucontext.h>
 
 using namespace std;
-TCB *curr;
+
 // Finished queue entry type
 typedef struct finished_queue_entry
 {
 	TCB *tcb;	  // Pointer to TCB
 	void *result; // Pointer to thread result (output)
 } finished_queue_entry_t;
-static sigset_t mask;
+
 // Join queue entry type
 typedef struct join_queue_entry
 {
@@ -31,10 +31,13 @@ typedef struct join_queue_entry
 // - Separate join and finished "queues" can also help when supporting joining.
 //   Example join and finished queue entry types are provided above
 
-// Queues
-static deque<TCB *> ready_queue;
+TCB *curr; // current TCB
+
 int total_quantums = 0;
+
+
 // Interrupt Management --------------------------------------------------------
+static sigset_t mask;
 
 // Start a countdown timer to fire an interrupt
 static void startInterruptTimer(int quantum_usecs)
@@ -73,7 +76,11 @@ static void enableInterrupts()
     sigprocmask(SIG_UNBLOCK, &mask, nullptr);
 }
 
+
 // Queue Management ------------------------------------------------------------
+static deque<TCB *> ready_queue;
+static deque<join_queue_entry_t> join_queue;
+static deque<finished_queue_entry_t> finished_queue;
 
 // Add TCB to the back of the ready queue
 void addToReadyQueue(TCB* tcb) {
@@ -122,14 +129,18 @@ int removeFromReadyQueue(int tid)
 }
 
 // Helper functions ------------------------------------------------------------
-static TCB* current_thread = nullptr; // 当前运行线程
-static deque<TCB*> finished_queue;    // 已完成线程队列
-static deque<join_queue_entry_t> join_queue; // 等待队列
+
 static void switchThreads() {
     // Error check for ready queue
     if (ready_queue.empty()) {
-        if (current_thread && current_thread->getState() == FINISH) {
+        if (curr && curr->getState() == FINISH) {
             cerr << "All threads completed" << endl;
+            std::cout << "[DEBUG] Adding TID " << curr->getId() << " to finish queue." << std::endl;
+            void* retval = nullptr;
+            finished_queue_entry_t entry;
+            entry.tcb = curr;
+            entry.result = retval;
+            finished_queue.push_back(entry);
             enableInterrupts();
             exit(EXIT_SUCCESS);
         } else {
@@ -138,14 +149,17 @@ static void switchThreads() {
             exit(EXIT_FAILURE);
         }
     }
-    if (getcontext(&current_thread->_context) == -1) {
+    if (getcontext(&curr->_context) == -1) {
         std::cerr << "Error saving context for previous thread" << std::endl;
         exit(EXIT_FAILURE);
     }
-    TCB* prev_thread = current_thread; // Save the current thread for swap
+    TCB* prev_thread = curr; // Save the current thread for swap
 
-
-    current_thread = popFromReadyQueue();
+    if(ready_queue.empty()){
+        std::cerr << "Error: next_thread is NULL in switchThreads()" << std::endl;
+        exit(1);
+    }
+    curr = popFromReadyQueue();
     //modify prev here:
     if (prev_thread != nullptr) {
         // Only re-queue threads that are not finished
@@ -154,22 +168,26 @@ static void switchThreads() {
             addToReadyQueue(prev_thread);  // Add to ready queue after finishing
         }
     }
-    if (!current_thread) {
-        std::cerr << "Error: next_thread is NULL in switchThreads()" << std::endl;
-        exit(1);
-    }
-    current_thread->setState(RUNNING);
-    if (!prev_thread) {
+    else{
         std::cerr << "Warning: prev_thread is NULL, using setcontext instead of swapcontext." << std::endl;
     }
-
-    std::cout << "Switching to current_thread: " << current_thread->getId() << std::endl;
-    if (getcontext(&current_thread->_context) == -1) {
-        std::cerr << "Error switching to current thread" << std::endl;
+    /*if (!curr) {
+        std::cerr << "Error: next_thread is NULL in switchThreads()" << std::endl;
+        exit(1);
+    }*/
+    
+    curr->setState(RUNNING);
+    if (setcontext(&curr->_context) == -1) {
+        std::cerr << "Error restoring context" << std::endl;
         exit(EXIT_FAILURE);
     }
+    std::cout << "Switching to current_thread: " << curr->getId() << std::endl;
+    /*if (getcontext(&curr->_context) == -1) {
+        std::cerr << "Error switching to current thread" << std::endl;
+        exit(EXIT_FAILURE);
+    }*/
 
-    std::cout << "yield done, current thread is " << current_thread->getId() 
+    std::cout << "yield done, current thread is " << curr->getId() 
               << " prev thread that yielded is " << prev_thread->getId() << std::endl;
 }
 
@@ -184,10 +202,6 @@ void stub(void *(*start_routine)(void *), void *arg) {
     uthread_exit( retval );
 }
 
-
-
-
-
 int uthread_init(int quantum_usecs)
 {
     // Initialize any data structures
@@ -198,17 +212,17 @@ int uthread_init(int quantum_usecs)
     // Create and initialize TCB for the main thread
     TCB *main_tcb = new TCB(0, Priority::ORANGE, nullptr, nullptr, State::RUNNING);
     // Set current thread to the main thread
-    current_thread = main_tcb;
+    curr = main_tcb;
     std::cout << "[DEBUG] Main thread initialized with TID 0." << std::endl;
     return 0;
 }
-
 
 static int next_tid = 1;
 
 int getNewTid() {
     return next_tid++;  
 }
+
 int uthread_create(void *(*start_routine)(void *), void *arg) {
     disableInterrupts();
     
@@ -229,49 +243,65 @@ int uthread_create(void *(*start_routine)(void *), void *arg) {
     addToReadyQueue(new_tcb);
 
     std::cout << "[DEBUG] Created new thread with TID " << new_tcb->getId() << std::endl;
-	cout << "[DEBUG] uthread_create: start_routine = " << (void*)start_routine 
-	<< ", arg = " << arg << endl;
+    std::cout << "[DEBUG] Created current TID = " << tid << std::endl;
+	std::cout << "[DEBUG] uthread_create: start_routine = " << (void*)start_routine 
+	<< ", arg = " << arg << std::endl;
     enableInterrupts();
     return tid;
 }
 
-
+// In order to synchronize thread completions
+// a thread can call uthread_join to block 
+// until the specified thread has terminated. 
 int uthread_join(int tid, void **retval)
 {
-	// If the thread specified by tid is already terminated, just return
-	// If the thread specified by tid is still running, block until it terminates
-	// Set *retval to be the result of thread if retval != nullptr
 	disableInterrupts();
     
-    // 查找目标线程是否已完成
-    for (auto& entry : finished_queue) {
-        if (entry->getId() == tid) {
-            //todo: ???
+    // check wheather the thread is finished
+    // If the thread specified by tid is already terminated, just return
+    for (finished_queue_entry_t& entry : finished_queue) {
+        if (entry.tcb->getId() == tid) {
 			//if (retval) *retval = entry.result;
             enableInterrupts();
             return 0;
         }
     }
-    
-    // 未完成则加入等待队列
-    join_queue_entry_t entry = {current_thread, tid};
+
+	// If the thread specified by tid is still running
+    // block until it terminates
+    join_queue_entry_t entry = {curr, tid};
     join_queue.push_back(entry);
-    current_thread->setState(BLOCK);
-    
+    curr->setState(BLOCK);
     enableInterrupts();
-    
-    // 主动让出CPU
     switchThreads();
-    
-    // 被唤醒后继续执行
+	
+    // Set *retval to be the result of thread if retval != nullptr
+    disableInterrupts();
+    if (retval) {
+        for (finished_queue_entry_t& entry : finished_queue) {
+            if (entry.tcb->getId() == tid) {            
+                *retval = entry.result; // 将线程的返回值存储到 retval
+            }
+            break;
+        }
+    }
+    enableInterrupts();
+
     return 0;
 }
+
 int uthread_yield(void)
 {
     disableInterrupts();
 
+    if (!curr) {
+        std::cerr << "Yield Error: No running thread" << std::endl;
+        enableInterrupts();
+        return -1;
+    }
+
     std::cout << "[DEBUG] Entering uthread_yield function." << std::endl;
-    std::cout << "[DEBUG] Yielding current thread TID: " << current_thread->getId() << std::endl;
+    std::cout << "[DEBUG] Yielding current thread TID: " << curr->getId() << std::endl;
 
     switchThreads();  
 
@@ -284,13 +314,16 @@ void uthread_exit(void *retval)
     disableInterrupts();
     
     // Set the thread state to FINISH (terminated)
-    current_thread->setState(State::FINISH);
-
-    finished_queue.push_back(current_thread);
+    curr->setState(State::FINISH);
+    std::cout << "[DEBUG] Adding TID " << curr->getId() << " to finish queue." << std::endl;
+    finished_queue_entry_t entry;
+    entry.tcb = curr;
+    entry.result = retval;
+    finished_queue.push_back(entry);
 
     // Wake up any threads waiting for this one
     for (auto it = join_queue.begin(); it != join_queue.end();) {
-        if (it->waiting_for_tid == current_thread->getId()) {
+        if (it->waiting_for_tid == curr->getId()) {
             addToReadyQueue(it->tcb);
             it = join_queue.erase(it);
         } else {
@@ -326,7 +359,7 @@ int uthread_once(uthread_once_t *once_control, void (*init_routine)(void))
 
 int uthread_self()
 {
-    return current_thread->getId( );
+    return curr->getId( );
 }
 
 int uthread_get_total_quantums()
